@@ -14,9 +14,12 @@ var competitiveFees = []int64{
 	12000000, // 12M PI for extreme competition
 }
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 func GetCompetitiveFee() int64 {
 	// Use random high fee to compete with other bots
-	rand.Seed(time.Now().UnixNano())
 	return competitiveFees[rand.Intn(len(competitiveFees))]
 }
 

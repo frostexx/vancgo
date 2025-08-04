@@ -84,7 +84,7 @@ func ExtractClaimableTime(pred xdr.ClaimPredicate) (time.Time, bool) {
 func ExtractClaimableTimeFromClaimants(claimants []interface{}) (time.Time, bool) {
 	for _, claimant := range claimants {
 		if claimantMap, ok := claimant.(map[string]interface{}); ok {
-			if predicate, exists := claimantMap["predicate"]; exists {
+			if _, exists := claimantMap["predicate"]; exists {
 				// Try to parse predicate and extract time
 				// This is a simplified version - you might need to adjust based on actual data structure
 				return time.Now().Add(time.Hour), true // Placeholder
