@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PI Wallet Advanced Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .server-time {
+            font-size: 18px;
+            font-weight: bold;
+            color: #4f46e5;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #4f46e5;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .toggle-container {
+            display: flex;
+            background: #f3f4f6;
+            border-radius: 10px;
+            padding: 5px;
+            margin-bottom: 20px;
+        }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 12px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .toggle-btn.active {
+            background: white;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .balance-info {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .transactions {
+            margin-top: 20px;
+        }
+
+        .transaction-item {
+            background: #f8fafc;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .logs-container {
+            height: 400px;
+            overflow-y: auto;
+            background: #1f2937;
+            border-radius: 8px;
+            padding: 15px;
+            color: #e5e7eb;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 3px 0;
+        }
+
+        .log-success {
+            color: #10b981;
+        }
+
+        .log-error {
+            color: #ef4444;
+        }
+
+        .log-info {
+            color: #3b82f6;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #f8fafc;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4f46e5;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .sponsor-info {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .sponsor-info h4 {
+            color: #92400e;
+            margin-bottom: 8px;
+        }
+
+        .sponsor-info p {
+            color: #b45309;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .header {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>PI Wallet Advanced Bot</h1>
+            <div class="server-time" id="serverTime">--:--:--</div>
+        </div>
+
+        <div class="toggle-container">
+            <button class="toggle-btn active" onclick="showPage('login')">Login</button>
+            <button class="toggle-btn" onclick="showPage('withdraw')">Withdraw</button>
+        </div>
+
+        <div class="main-content">
+            <!-- Login Page -->
+            <div id="login" class="page active">
+                <div class="card">
+                    <h2>Wallet Login</h2>
+                    <form id="loginForm">
+                        <div class="form-group">
+                            <label for="seedPhrase">Seed Phrase</label>
+                            <textarea id="seedPhrase" rows="3" placeholder="Enter your 24-word seed phrase..." required></textarea>
+                        </div>
+                        <button type="submit" class="btn">Login</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Withdraw Page -->
+            <div id="withdraw" class="page">
+                <div class="card">
+                    <h2>Advanced Withdrawal</h2>
+                    
+                    <div class="balance-info" id="balanceInfo" style="display: none;">
+                        <h3>Wallet Information</h3>
+                        <p><strong>Address:</strong> <span id="walletAddress"></span></p>
+                        <p><strong>Available Balance:</strong> <span id="availableBalance"></span> PI</p>
+                    </div>
+
+                    <div class="sponsor-info">
+                        <h4>🎯 Sponsor Fee System</h4>
+                        <p>Claiming fees will be paid by sponsor wallet for maximum speed. Leave sponsor field empty to use main wallet for all fees.</p>
+                    </div>
+
+                    <form id="withdrawForm">
+                        <div class="form-group">
+                            <label for="withdrawAddress">Withdrawal Address</label>
+                            <input type="text" id="withdrawAddress" placeholder="Destination address..." required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="lockedBalance">Locked Balance</label>
+                            <select id="lockedBalance" required>
+                                <option value="">Select locked balance...</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="withdrawAmount">Amount</label>
+                            <input type="number" id="withdrawAmount" step="0.0000001" placeholder="Amount to withdraw..." required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="sponsorPhrase">Sponsor Seed Phrase (Optional)</label>
+                            <textarea id="sponsorPhrase" rows="2" placeholder="Sponsor wallet seed phrase for paying claim fees..."></textarea>
+                            <small style="color: #6b7280;">Leave empty to use main wallet for all fees</small>
+                        </div>
+
+                        <button type="submit" class="btn">Start Advanced Bot</button>
+                    </form>
+
+                    <div class="transactions" id="transactions" style="display: none;">
+                        <h3>Recent Transactions</h3>
+                        <div id="transactionList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs Column -->
+            <div class="card">
+                <h2>Live Monitoring</h2>
+                
+                <div class="stats" id="stats" style="display: none;">
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalAttempts">0</div>
+                        <div class="stat-label">Total Attempts</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="successfulClaims">0</div>
+                        <div class="stat-label">Successful Claims</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="activeGoroutines">0</div>
+                        <div class="stat-label">Active Threads</div>
+                    </div>
+                </div>
+
+                <div class="logs-container" id="logsContainer">
+                    <div class="log-entry log-info">Bot ready. Login to start monitoring...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let walletData = null;
+        let stats = {
+            totalAttempts: 0,
+            successfulClaims: 0,
+            activeGoroutines: 0
+        };
+
+        // Update server time
+        function updateServerTime() {
+            const now = new Date();
+            document.getElementById('serverTime').textContent = now.toLocaleTimeString();
+        }
+        setInterval(updateServerTime, 1000);
+        updateServerTime();
+
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
+            document.querySelectorAll('.toggle-btn').forEach(btn => btn.classList.remove('active'));
+            
+            document.getElementById(pageId).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function addLog(message, type = 'info') {
+            const logsContainer = document.getElementById('logsContainer');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            
+            logsContainer.appendChild(logEntry);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+
+            // Keep only last 1000 log entries
+            while (logsContainer.children.length > 1000) {
+                logsContainer.removeChild(logsContainer.firstChild);
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('totalAttempts').textContent = stats.totalAttempts;
+            document.getElementById('successfulClaims').textContent = stats.successfulClaims;
+            document.getElementById('activeGoroutines').textContent = stats.activeGoroutines;
+            document.getElementById('stats').style.display = 'grid';
+        }
+
+        // Login form handler
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const seedPhrase = document.getElementById('seedPhrase').value.trim();
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        seed_phrase: seedPhrase
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    walletData = data;
+                    displayWalletInfo(data);
+                    addLog('✅ Login successful', 'success');
+                    showPage('withdraw');
+                } else {
+                    addLog(`❌ Login failed: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                addLog(`❌ Login error: ${error.message}`, 'error');
+            }
+        });
+
+        function displayWalletInfo(data) {
+            document.getElementById('walletAddress').textContent = data.wallet_address;
+            document.getElementById('availableBalance').textContent = data.available_balance;
+            document.getElementById('balanceInfo').style.display = 'block';
+
+            // Populate locked balances
+            const lockedBalanceSelect = document.getElementById('lockedBalance');
+            lockedBalanceSelect.innerHTML = '<option value="">Select locked balance...</option>';
+            
+            data.locked_balances?.forEach(balance => {
+                const option = document.createElement('option');
+                option.value = balance.id;
+                option.textContent = `${balance.amount} PI (ID: ${balance.id.substring(0, 8)}...)`;
+                lockedBalanceSelect.appendChild(option);
+            });
+
+            // Display recent transactions
+            if (data.transactions?.length > 0) {
+                const transactionList = document.getElementById('transactionList');
+                transactionList.innerHTML = '';
+                
+                data.transactions.slice(0, 5).forEach(tx => {
+                    const txElement = document.createElement('div');
+                    txElement.className = 'transaction-item';
+                    txElement.innerHTML = `
+                        <strong>Type:</strong> ${tx.type}<br>
+                        <strong>Amount:</strong> ${tx.amount || 'N/A'}<br>
+                        <strong>Time:</strong> ${new Date(tx.created_at).toLocaleString()}
+                    `;
+                    transactionList.appendChild(txElement);
+                });
+                
+                document.getElementById('transactions').style.display = 'block';
+            }
+        }
+
+        // Withdraw form handler
+        document.getElementById('withdrawForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            if (!walletData) {
+                addLog('❌ Please login first', 'error');
+                return;
+            }
+
+            const withdrawData = {
+                seed_phrase: walletData.seed_phrase,
+                sponsor_phrase: document.getElementById('sponsorPhrase').value.trim(),
+                withdrawal_address: document.getElementById('withdrawAddress').value.trim(),
+                locked_balance_id: document.getElementById('lockedBalance').value,
+                amount: document.getElementById('withdrawAmount').value
+            };
+
+            if (!withdrawData.withdrawal_address || !withdrawData.locked_balance_id || !withdrawData.amount) {
+                addLog('❌ Please fill in all required fields', 'error');
+                return;
+            }
+
+            startWebSocketConnection(withdrawData);
+        });
+
+        function startWebSocketConnection(withdrawData) {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/withdraw`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = () => {
+                addLog('🔗 Connected to advanced bot', 'info');
+                socket.send(JSON.stringify(withdrawData));
+                
+                // Reset stats
+                stats = { totalAttempts: 0, successfulClaims: 0, activeGoroutines: 5 };
+                updateStats();
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const response = JSON.parse(event.data);
+                    handleBotResponse(response);
+                } catch (error) {
+                    addLog(`❌ Error parsing response: ${error.message}`, 'error');
+                }
+            };
+
+            socket.onclose = () => {
+                addLog('🔌 Connection closed', 'info');
+                stats.activeGoroutines = 0;
+                updateStats();
+            };
+
+            socket.onerror = (error) => {
+                addLog(`❌ WebSocket error: ${error.message}`, 'error');
+            };
+        }
+
+        function handleBotResponse(response) {
+            switch (response.action) {
+                case 'server_time':
+                    addLog(`🕒 Server time: ${response.server_time}`, 'info');
+                    break;
+                
+                case 'available_transferred':
+                    addLog(`💰 ${response.message}`, 'success');
+                    break;
+                
+                case 'scheduled':
+                    addLog(`⏰ ${response.message}`, 'info');
+                    break;
+                
+                case 'attempt':
+                    stats.totalAttempts++;
+                    if (response.success) {
+                        stats.successfulClaims++;
+                        addLog(`✅ ${response.message}`, 'success');
+                    } else {
+                        addLog(`⚠️ ${response.message}`, 'error');
+                    }
+                    updateStats();
+                    break;
+                
+                case 'success':
+                    addLog(`🎉 ${response.message}`, 'success');
+                    stats.activeGoroutines = 0;
+                    updateStats();
+                    break;
+                
+                case 'error':
+                    addLog(`❌ ${response.message}`, 'error');
+                    break;
+                
+                default:
+                    addLog(`ℹ️ ${response.message}`, 'info');
+            }
+        }
+    </script>
+</body>
+</html>
