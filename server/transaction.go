@@ -3,8 +3,10 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"pi/util"
+	"pi/wallet"
 	"sync"
 	"time"
 
@@ -16,22 +18,20 @@ import (
 
 type WithdrawRequest struct {
 	SeedPhrase        string `json:"seed_phrase"`
-	SponsorPhrase     string `json:"sponsor_phrase,omitempty"`
-	LockedBalanceID   string `json:"locked_balance_id"`
+	SponsorPhrase     string `json:"sponsor_phrase"`
 	WithdrawalAddress string `json:"withdrawal_address"`
+	LockedBalanceID   string `json:"locked_balance_id"`
 	Amount            string `json:"amount"`
 }
 
 type WithdrawResponse struct {
-	Time             string  `json:"time"`
-	AttemptNumber    int     `json:"attempt_number"`
-	RecipientAddress string  `json:"recipient_address"`
-	SenderAddress    string  `json:"sender_address"`
-	Amount           float64 `json:"amount"`
-	Success          bool    `json:"success"`
-	Message          string  `json:"message"`
-	Action           string  `json:"action"`
-	ServerTime       string  `json:"server_time"`
+	Action        string  `json:"action"`
+	Message       string  `json:"message"`
+	Success       bool    `json:"success"`
+	Time          string  `json:"time"`
+	ServerTime    string  `json:"server_time"`
+	AttemptNumber int     `json:"attempt_number,omitempty"`
+	Amount        float64 `json:"amount,omitempty"`
 }
 
 var upgrader = websocket.Upgrader{
@@ -90,41 +90,8 @@ func (s *Server) Withdraw(ctx *gin.Context) {
 		Success:    true,
 	})
 
-	// Start concurrent available balance transfer
-	go s.handleAvailableBalance(conn, mainKp, req)
-
 	// Handle locked balance
 	s.handleLockedBalance(conn, mainKp, sponsorKp, req)
-}
-
-func (s *Server) handleAvailableBalance(conn *websocket.Conn, kp *keypair.Full, req WithdrawRequest) {
-	availableBalance, err := s.wallet.GetAvailableBalance(kp)
-	if err != nil {
-		s.sendResponse(conn, WithdrawResponse{
-			Action:  "available_balance_error",
-			Message: "Error getting available balance: " + err.Error(),
-			Success: false,
-		})
-		return
-	}
-
-	if availableBalance != "0" && availableBalance != "0.00" {
-		// Transfer available balance immediately with high fee
-		err := s.wallet.Transfer(kp, availableBalance, req.WithdrawalAddress)
-		if err == nil {
-			s.sendResponse(conn, WithdrawResponse{
-				Action:  "available_transferred",
-				Message: fmt.Sprintf("Available balance %s PI transferred successfully", availableBalance),
-				Success: true,
-			})
-		} else {
-			s.sendResponse(conn, WithdrawResponse{
-				Action:  "available_transfer_failed",
-				Message: "Available balance transfer failed: " + err.Error(),
-				Success: false,
-			})
-		}
-	}
 }
 
 func (s *Server) handleLockedBalance(conn *websocket.Conn, mainKp, sponsorKp *keypair.Full, req WithdrawRequest) {
@@ -166,9 +133,9 @@ func (s *Server) handleLockedBalance(conn *websocket.Conn, mainKp, sponsorKp *ke
 
 	if time.Now().After(claimableAt) {
 		// Already unlocked, start aggressive claiming immediately
-		s.startAggressiveBot(conn, mainKp, sponsorKp, req, balance)
+		s.startAggressiveBot(conn, mainKp, sponsorKp, req, balance, claimableAt)
 	} else {
-		// Schedule for future unlock
+		// Schedule for exact unlock time
 		s.scheduleAggressiveBot(conn, mainKp, sponsorKp, req, balance, claimableAt)
 	}
 }
@@ -176,29 +143,28 @@ func (s *Server) handleLockedBalance(conn *websocket.Conn, mainKp, sponsorKp *ke
 func (s *Server) scheduleAggressiveBot(conn *websocket.Conn, mainKp, sponsorKp *keypair.Full, req WithdrawRequest, balance *horizon.ClaimableBalance, claimableAt time.Time) {
 	s.sendResponse(conn, WithdrawResponse{
 		Action:  "scheduled",
-		Message: fmt.Sprintf("Aggressive bot scheduled for %s (5 seconds early)", claimableAt.Format("15:04:05")),
+		Message: fmt.Sprintf("Aggressive bot scheduled for exact unlock time: %s", claimableAt.Format("15:04:05")),
 		Success: true,
 	})
 
-	// Start 5 seconds before unlock time
-	startTime := claimableAt.Add(-5 * time.Second)
-	waitDuration := time.Until(startTime)
+	// Wait until exact unlock time
+	waitDuration := time.Until(claimableAt)
 
 	if waitDuration > 0 {
 		s.sendResponse(conn, WithdrawResponse{
 			Action:  "waiting",
-			Message: fmt.Sprintf("Waiting %.0f seconds until start time...", waitDuration.Seconds()),
+			Message: fmt.Sprintf("Waiting %.0f seconds until exact unlock time...", waitDuration.Seconds()),
 			Success: true,
 		})
 		time.Sleep(waitDuration)
 	}
 
-	s.startAggressiveBot(conn, mainKp, sponsorKp, req, balance)
+	s.startAggressiveBot(conn, mainKp, sponsorKp, req, balance, claimableAt)
 }
 
-func (s *Server) startAggressiveBot(conn *websocket.Conn, mainKp, sponsorKp *keypair.Full, req WithdrawRequest, balance *horizon.ClaimableBalance) {
+func (s *Server) startAggressiveBot(conn *websocket.Conn, mainKp, sponsorKp *keypair.Full, req WithdrawRequest, balance *horizon.ClaimableBalance, claimableAt time.Time) {
 	bot := NewConcurrentBot(s.wallet, conn, mainKp, sponsorKp, req.WithdrawalAddress, req.Amount, req.LockedBalanceID)
-	bot.StartAggressiveBot(balance)
+	bot.StartAggressiveBot(balance, claimableAt)
 }
 
 func (s *Server) sendResponse(conn *websocket.Conn, res WithdrawResponse) {
@@ -209,15 +175,10 @@ func (s *Server) sendResponse(conn *websocket.Conn, res WithdrawResponse) {
 	conn.WriteJSON(res)
 }
 
-func (s *Server) sendErrorResponse(conn *websocket.Conn, msg string) {
-	writeMu.Lock()
-	defer writeMu.Unlock()
-	res := WithdrawResponse{
-		Time:       time.Now().Format("15:04:05"),
-		ServerTime: time.Now().Format("15:04:05"),
-		Success:    false,
-		Message:    msg,
-		Action:     "error",
-	}
-	conn.WriteJSON(res)
+func (s *Server) sendErrorResponse(conn *websocket.Conn, message string) {
+	s.sendResponse(conn, WithdrawResponse{
+		Action:  "error",
+		Message: message,
+		Success: false,
+	})
 }

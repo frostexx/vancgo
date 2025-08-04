@@ -41,30 +41,10 @@ func NewConcurrentBot(w *wallet.Wallet, conn *websocket.Conn, mainKp, sponsorKp 
 	}
 }
 
-func (cb *ConcurrentBot) StartAggressiveBot(balance *horizon.ClaimableBalance) {
-	var claimableAt time.Time
-	var ok bool
+func (cb *ConcurrentBot) StartAggressiveBot(balance *horizon.ClaimableBalance, unlockTime time.Time) {
+	cb.sendMessage("🚀 Starting at exact unlock time")
 
-	// Try to extract claimable time from the first claimant
-	if len(balance.Claimants) > 0 {
-		claimableAt, ok = util.ExtractClaimableTime(balance.Claimants[0].Predicate)
-	}
-
-	if !ok {
-		cb.sendError("Failed to extract claimable time")
-		return
-	}
-
-	// Start 5 seconds before unlock time for competitive advantage
-	startTime := claimableAt.Add(-5 * time.Second)
-	waitDuration := time.Until(startTime)
-	
-	if waitDuration > 0 {
-		cb.sendMessage(fmt.Sprintf("Bot will start aggressive claiming 5 seconds before unlock at %s", startTime.Format("15:04:05")))
-		time.Sleep(waitDuration)
-	}
-
-	// Start concurrent operations
+	// Start concurrent operations immediately at unlock time
 	var wg sync.WaitGroup
 	
 	// Network flooding goroutines (5 concurrent claim attempts)
@@ -76,18 +56,18 @@ func (cb *ConcurrentBot) StartAggressiveBot(balance *horizon.ClaimableBalance) {
 		}(i)
 	}
 
-	// Concurrent transfer preparation
+	// Start transfer monitoring at exact unlock time (with 0 balance)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		cb.prepareTransfer()
+		cb.continuousTransferMonitor()
 	}()
 
 	wg.Wait()
 }
 
 func (cb *ConcurrentBot) aggressiveClaim(goroutineID int, balance *horizon.ClaimableBalance) {
-	maxAttempts := 200 // Increased from 100
+	maxAttempts := 200
 	
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		select {
@@ -124,31 +104,35 @@ func (cb *ConcurrentBot) aggressiveClaim(goroutineID int, balance *horizon.Claim
 	}
 }
 
-func (cb *ConcurrentBot) prepareTransfer() {
-	// Wait for available balance and transfer immediately
-	maxWait := 30 * time.Second
-	startTime := time.Now()
+// New function for continuous transfer monitoring starting at unlock time
+func (cb *ConcurrentBot) continuousTransferMonitor() {
+	cb.sendMessage("💰 Starting continuous transfer monitor (every 10ms)")
 	
-	for time.Since(startTime) < maxWait {
+	// Run indefinitely every 10ms until successful transfer
+	for {
 		select {
 		case <-cb.ctx.Done():
 			return
 		default:
 		}
 
+		// Always attempt transfer regardless of balance
 		availableBalance, err := cb.wallet.GetAvailableBalance(cb.mainKp)
-		if err == nil && availableBalance != "0" {
+		if err == nil && availableBalance != "0" && availableBalance != "0.00" {
 			// Attempt transfer with high fee
 			transferFee := util.GetTransferFee()
 			hash, err := cb.wallet.TransferWithFee(cb.mainKp, availableBalance, cb.withdrawalAddress, transferFee)
 			
 			if err == nil {
-				cb.sendSuccess(fmt.Sprintf("Transfer completed - Hash: %s", hash))
+				cb.sendSuccess(fmt.Sprintf("Transfer completed: %s PI - Hash: %s", availableBalance, hash))
 				return
+			} else {
+				cb.sendMessage(fmt.Sprintf("Transfer retry: %s", err.Error()))
 			}
 		}
 		
-		time.Sleep(100 * time.Millisecond)
+		// Check every 10ms for immediate response as requested
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
