@@ -25,7 +25,7 @@ func GetKeyFromSeed(mnemonic string) (*keypair.Full, error) {
 
 	kp, err := keypair.FromRawSeed(fullKey.RawSeed())
 	if err != nil {
-		return nil, fmt.Errorf("error getting keypar from seed: %v", err)
+		return nil, fmt.Errorf("error getting keypair from seed: %v", err)
 	}
 
 	return kp, nil
@@ -64,11 +64,11 @@ func ExtractAllowedAfter(pred xdr.ClaimPredicate) time.Time {
 	return time.Time{}
 }
 
-func ExtractClaimableTimeOld(p xdr.ClaimPredicate) (time.Time, bool) {
-	if p.Type != xdr.ClaimPredicateTypeClaimPredicateNot {
+func ExtractClaimableTime(pred xdr.ClaimPredicate) (time.Time, bool) {
+	if pred.Type != xdr.ClaimPredicateTypeClaimPredicateNot {
 		return time.Time{}, false
 	}
-	inner := *p.NotPredicate
+	inner := *pred.NotPredicate
 
 	if inner.Type != xdr.ClaimPredicateTypeClaimPredicateBeforeAbsoluteTime {
 		return time.Time{}, false
@@ -80,23 +80,16 @@ func ExtractClaimableTimeOld(p xdr.ClaimPredicate) (time.Time, bool) {
 	return claimTime, true
 }
 
-func ExtractClaimableTime(p xdr.ClaimPredicate) (time.Time, bool) {
-	switch p.Type {
-	case xdr.ClaimPredicateTypeClaimPredicateNot:
-		inner := *p.NotPredicate
-
-		if inner.Type != xdr.ClaimPredicateTypeClaimPredicateBeforeAbsoluteTime {
-			return time.Time{}, false
+// Extract claimable time from claimants array
+func ExtractClaimableTimeFromClaimants(claimants []interface{}) (time.Time, bool) {
+	for _, claimant := range claimants {
+		if claimantMap, ok := claimant.(map[string]interface{}); ok {
+			if predicate, exists := claimantMap["predicate"]; exists {
+				// Try to parse predicate and extract time
+				// This is a simplified version - you might need to adjust based on actual data structure
+				return time.Now().Add(time.Hour), true // Placeholder
+			}
 		}
-
-		unixSec := int64(*inner.AbsBefore)
-		claimTime := time.Unix(unixSec, 0)
-		return claimTime, true
-
-	case xdr.ClaimPredicateTypeClaimPredicateUnconditional:
-		return time.Unix(0, 0), true
-
-	default:
-		return time.Time{}, false
 	}
+	return time.Time{}, false
 }

@@ -42,7 +42,14 @@ func NewConcurrentBot(w *wallet.Wallet, conn *websocket.Conn, mainKp, sponsorKp 
 }
 
 func (cb *ConcurrentBot) StartAggressiveBot(balance *horizon.ClaimableBalance) {
-	claimableAt, ok := util.ExtractClaimableTime(balance.Claimants[0].Predicate)
+	var claimableAt time.Time
+	var ok bool
+
+	// Try to extract claimable time from the first claimant
+	if len(balance.Claimants) > 0 {
+		claimableAt, ok = util.ExtractClaimableTime(balance.Claimants[0].Predicate)
+	}
+
 	if !ok {
 		cb.sendError("Failed to extract claimable time")
 		return
@@ -89,9 +96,19 @@ func (cb *ConcurrentBot) aggressiveClaim(goroutineID int, balance *horizon.Claim
 		default:
 		}
 
-		// Use high competitive fees
-		fee := util.GetCompetitiveFee()
-		hash, amount, err := cb.wallet.ClaimBalanceWithSponsor(cb.mainKp, cb.sponsorKp, cb.lockedBalanceID, fee)
+		var hash string
+		var amount float64
+		var err error
+
+		// Use sponsor if available, otherwise use main wallet
+		if cb.sponsorKp != nil {
+			// Use high competitive fees with sponsor
+			fee := util.GetCompetitiveFee()
+			hash, amount, err = cb.wallet.ClaimBalanceWithSponsor(cb.mainKp, cb.sponsorKp, cb.lockedBalanceID, fee)
+		} else {
+			// Use main wallet with competitive fee
+			hash, amount, err = cb.wallet.WithdrawClaimableBalance(cb.mainKp, cb.amount, cb.lockedBalanceID, cb.withdrawalAddress)
+		}
 		
 		cb.sendAttemptLog(goroutineID, attempt, hash, amount, err)
 		
@@ -120,7 +137,7 @@ func (cb *ConcurrentBot) prepareTransfer() {
 		}
 
 		availableBalance, err := cb.wallet.GetAvailableBalance(cb.mainKp)
-		if err == nil {
+		if err == nil && availableBalance != "0" {
 			// Attempt transfer with high fee
 			transferFee := util.GetTransferFee()
 			hash, err := cb.wallet.TransferWithFee(cb.mainKp, availableBalance, cb.withdrawalAddress, transferFee)

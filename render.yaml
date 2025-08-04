@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pi-wallet-bot
+    env: go
+    buildCommand: go build -tags netgo -ldflags '-s -w' -o app
+    startCommand: ./app
+    envVars:
+      - key: NETWORK
+        value: mainnet
+      - key: APP_PORT
+        value: ":8080"

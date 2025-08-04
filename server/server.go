@@ -40,7 +40,7 @@ func (s *Server) Run(port string) error {
 	})
 	r.StaticFS("/assets", http.Dir("./public/assets"))
 
-	fmt.Printf("running on port: %s\n", port)
+	fmt.Printf("Advanced Pi Bot running on port: %s\n", port)
 
 	return r.Run(port)
 }

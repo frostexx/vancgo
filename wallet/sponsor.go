@@ -9,24 +9,19 @@ import (
 )
 
 func (w *Wallet) ClaimBalanceWithSponsor(mainKp, sponsorKp *keypair.Full, balanceID string, fee int64) (string, float64, error) {
-	// Get main account
-	mainAccount, err := w.GetAccount(mainKp)
-	if err != nil {
-		return "", 0, fmt.Errorf("error getting main account: %w", err)
-	}
-
-	// Get sponsor account
+	// Get sponsor account for transaction source
 	sponsorAccount, err := w.GetAccount(sponsorKp)
 	if err != nil {
 		return "", 0, fmt.Errorf("error getting sponsor account: %w", err)
 	}
 
-	// Create claim operation
+	// Create claim operation with main account as source
 	claimOp := &txnbuild.ClaimClaimableBalance{
-		BalanceID: balanceID,
+		BalanceID:     balanceID,
+		SourceAccount: mainKp.Address(),
 	}
 
-	// Build transaction with sponsor paying fees
+	// Build transaction with sponsor as source account
 	tx, err := txnbuild.NewTransaction(
 		txnbuild.TransactionParams{
 			SourceAccount:        &sponsorAccount,
@@ -54,10 +49,10 @@ func (w *Wallet) ClaimBalanceWithSponsor(mainKp, sponsorKp *keypair.Full, balanc
 		return "", 0, fmt.Errorf("transaction failed: %w", err)
 	}
 
-	// Calculate claimed amount (approximate)
-	claimedAmount := 0.0
-	if len(resp.Successful) > 0 {
-		claimedAmount = 1.0 // You might need to parse this from transaction details
+	// Calculate claimed amount (approximate - you may need to parse from transaction effects)
+	claimedAmount := 1.0 // Default value, should be parsed from transaction results
+	if resp.Successful {
+		claimedAmount = 1.0 // Parse actual amount from transaction effects if needed
 	}
 
 	return resp.Hash, claimedAmount, nil

@@ -44,13 +44,13 @@ func (w *Wallet) GetBaseReserve() {
 	}
 
 	if len(ledger.Embedded.Records) == 0 {
-		fmt.Println(err)
+		fmt.Println("No ledger records found")
 		return
 	}
 
 	baseReserveStr := ledger.Embedded.Records[0].BaseReserve
 	w.baseReserve = float64(baseReserveStr) / 1e7
-	fmt.Println(w.baseReserve)
+	fmt.Printf("Base reserve: %.7f\n", w.baseReserve)
 }
 
 func (w *Wallet) GetAddress(kp *keypair.Full) string {
@@ -82,109 +82,141 @@ func (w *Wallet) GetAvailableBalance(kp *keypair.Full) (string, error) {
 		return "", err
 	}
 
-	var totalBalance float64
-	for _, b := range account.Balances {
-		if b.Type == "native" {
-			totalBalance, err = strconv.ParseFloat(b.Balance, 64)
-			if err != nil {
-				return "", err
-			}
-			break
+	for _, balance := range account.Balances {
+		if balance.Asset.Type == "native" {
+			return balance.Balance, nil
 		}
 	}
 
-	reserve := w.baseReserve * float64(2+account.SubentryCount)
-	available := totalBalance - reserve
-	if available < 0 {
-		available = 0
-	}
-
-	availableStr := fmt.Sprintf("%.2f", available)
-
-	return availableStr, nil
+	return "0", nil
 }
 
 func (w *Wallet) GetTransactions(kp *keypair.Full, limit uint) ([]operations.Operation, error) {
-	opReq := hClient.OperationRequest{
+	req := horizonclient.OperationRequest{
 		ForAccount: kp.Address(),
 		Limit:      limit,
-		Order:      hClient.OrderDesc,
+		Order:      horizonclient.OrderDesc,
 	}
-	ops, err := w.client.Operations(opReq)
+
+	ops, err := w.client.Operations(req)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching account operations: %v", err)
+		return nil, fmt.Errorf("error fetching transactions: %w", err)
 	}
 
 	return ops.Embedded.Records, nil
 }
 
 func (w *Wallet) GetLockedBalances(kp *keypair.Full) ([]horizon.ClaimableBalance, error) {
-	req := hClient.ClaimableBalanceRequest{
+	req := horizonclient.ClaimableBalanceRequest{
 		Claimant: kp.Address(),
-		Limit:    50,
 	}
 
-	res, err := w.client.ClaimableBalances(req)
+	balances, err := w.client.ClaimableBalances(req)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching locked balances: %v", err)
+		return nil, fmt.Errorf("error fetching locked balances: %w", err)
 	}
 
-	return res.Embedded.Records, nil
-}
-
-func (w *Wallet) ClaimAndWithdraw(kp *keypair.Full, amount float64, balanceID, address string) (string, error) {
-	account, err := w.GetAccount(kp)
-	if err != nil {
-		return "", err
-	}
-
-	claimOp := txnbuild.ClaimClaimableBalance{
-		BalanceID: balanceID,
-	}
-
-	paymentOp := txnbuild.Payment{
-		Destination: address,
-		Amount:      strconv.FormatFloat(amount, 'f', -1, 64),
-		Asset:       txnbuild.NativeAsset{},
-	}
-
-	txParams := txnbuild.TransactionParams{
-		SourceAccount:        &account,
-		IncrementSequenceNum: true,
-		Operations:           []txnbuild.Operation{&claimOp, &paymentOp},
-		BaseFee:              1_000_000,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewInfiniteTimeout(),
-		},
-	}
-
-	tx, err := txnbuild.NewTransaction(txParams)
-	if err != nil {
-		return "", fmt.Errorf("error building transaction: %v", err)
-	}
-
-	signedTx, err := tx.Sign(w.networkPassphrase, kp)
-	if err != nil {
-		return "", fmt.Errorf("error signing transaction: %v", err)
-	}
-
-	resp, err := w.client.SubmitTransaction(signedTx)
-	if err != nil {
-		return "", fmt.Errorf("error submitting transaction: %v", err)
-	}
-
-	if !resp.Successful {
-		return "", fmt.Errorf("transaction failed")
-	}
-
-	return resp.Hash, nil
+	return balances.Embedded.Records, nil
 }
 
 func (w *Wallet) GetClaimableBalance(balanceID string) (*horizon.ClaimableBalance, error) {
-	res, err := w.client.ClaimableBalance(balanceID)
+	balance, err := w.client.ClaimableBalance(balanceID)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching locked balance: %v", err)
+		return nil, fmt.Errorf("error fetching claimable balance: %w", err)
 	}
 
-	return &res, nil
+	return &balance, nil
+}
+
+func (w *Wallet) Transfer(kp *keypair.Full, amountStr, destinationAddr string) error {
+	account, err := w.GetAccount(kp)
+	if err != nil {
+		return fmt.Errorf("error getting account: %w", err)
+	}
+
+	amount, err := strconv.ParseFloat(amountStr, 64)
+	if err != nil {
+		return fmt.Errorf("invalid amount: %w", err)
+	}
+
+	paymentOp := &txnbuild.Payment{
+		Destination: destinationAddr,
+		Amount:      fmt.Sprintf("%.7f", amount),
+		Asset:       txnbuild.NativeAsset{},
+	}
+
+	tx, err := txnbuild.NewTransaction(
+		txnbuild.TransactionParams{
+			SourceAccount:        &account,
+			IncrementSequenceNum: true,
+			Operations:           []txnbuild.Operation{paymentOp},
+			BaseFee:              txnbuild.MinBaseFee,
+			Preconditions: txnbuild.Preconditions{
+				TimeBounds: txnbuild.NewInfiniteTimeout(),
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("error building transaction: %w", err)
+	}
+
+	tx, err = tx.Sign(w.networkPassphrase, kp)
+	if err != nil {
+		return fmt.Errorf("error signing transaction: %w", err)
+	}
+
+	_, err = w.client.SubmitTransaction(tx)
+	if err != nil {
+		return fmt.Errorf("transaction failed: %w", err)
+	}
+
+	return nil
+}
+
+func (w *Wallet) WithdrawClaimableBalance(kp *keypair.Full, amountStr, balanceID, destinationAddr string) (string, float64, error) {
+	account, err := w.GetAccount(kp)
+	if err != nil {
+		return "", 0, fmt.Errorf("error getting account: %w", err)
+	}
+
+	// Create claim operation
+	claimOp := &txnbuild.ClaimClaimableBalance{
+		BalanceID: balanceID,
+	}
+
+	// Use competitive fee
+	fee := util.GetCompetitiveFee()
+
+	// Build transaction
+	tx, err := txnbuild.NewTransaction(
+		txnbuild.TransactionParams{
+			SourceAccount:        &account,
+			IncrementSequenceNum: true,
+			Operations:           []txnbuild.Operation{claimOp},
+			BaseFee:              fee,
+			Preconditions: txnbuild.Preconditions{
+				TimeBounds: txnbuild.NewInfiniteTimeout(),
+			},
+		},
+	)
+	if err != nil {
+		return "", 0, fmt.Errorf("error building transaction: %w", err)
+	}
+
+	// Sign transaction
+	tx, err = tx.Sign(w.networkPassphrase, kp)
+	if err != nil {
+		return "", 0, fmt.Errorf("error signing transaction: %w", err)
+	}
+
+	// Submit transaction
+	resp, err := w.client.SubmitTransaction(tx)
+	if err != nil {
+		return "", 0, fmt.Errorf("transaction failed: %w", err)
+	}
+
+	// Parse amount from response if available
+	amount, _ := strconv.ParseFloat(amountStr, 64)
+
+	return resp.Hash, amount, nil
 }
