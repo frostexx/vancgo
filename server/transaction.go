@@ -3,10 +3,8 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"pi/util"
-	"pi/wallet"
 	"sync"
 	"time"
 
