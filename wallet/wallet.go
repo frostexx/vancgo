@@ -11,7 +11,6 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/protocols/horizon/operations"
-	"github.com/stellar/go/txnbuild"
 )
 
 type Wallet struct {
@@ -82,13 +81,26 @@ func (w *Wallet) GetAvailableBalance(kp *keypair.Full) (string, error) {
 		return "", err
 	}
 
-	for _, balance := range account.Balances {
-		if balance.Asset.Type == "native" {
-			return balance.Balance, nil
+	var totalBalance float64
+	for _, b := range account.Balances {
+		if b.Type == "native" {
+			totalBalance, err = strconv.ParseFloat(b.Balance, 64)
+			if err != nil {
+				return "", err
+			}
+			break
 		}
 	}
 
-	return "0", nil
+	reserve := w.baseReserve * float64(2+account.SubentryCount)
+	available := totalBalance - reserve
+	if available < 0 {
+		available = 0
+	}
+
+	availableStr := fmt.Sprintf("%.2f", available)
+
+	return availableStr, nil
 }
 
 func (w *Wallet) GetTransactions(kp *keypair.Full, limit uint) ([]operations.Operation, error) {
@@ -126,97 +138,4 @@ func (w *Wallet) GetClaimableBalance(balanceID string) (*horizon.ClaimableBalanc
 	}
 
 	return &balance, nil
-}
-
-func (w *Wallet) Transfer(kp *keypair.Full, amountStr, destinationAddr string) error {
-	account, err := w.GetAccount(kp)
-	if err != nil {
-		return fmt.Errorf("error getting account: %w", err)
-	}
-
-	amount, err := strconv.ParseFloat(amountStr, 64)
-	if err != nil {
-		return fmt.Errorf("invalid amount: %w", err)
-	}
-
-	paymentOp := &txnbuild.Payment{
-		Destination: destinationAddr,
-		Amount:      fmt.Sprintf("%.7f", amount),
-		Asset:       txnbuild.NativeAsset{},
-	}
-
-	tx, err := txnbuild.NewTransaction(
-		txnbuild.TransactionParams{
-			SourceAccount:        &account,
-			IncrementSequenceNum: true,
-			Operations:           []txnbuild.Operation{paymentOp},
-			BaseFee:              txnbuild.MinBaseFee,
-			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewInfiniteTimeout(),
-			},
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("error building transaction: %w", err)
-	}
-
-	tx, err = tx.Sign(w.networkPassphrase, kp)
-	if err != nil {
-		return fmt.Errorf("error signing transaction: %w", err)
-	}
-
-	_, err = w.client.SubmitTransaction(tx)
-	if err != nil {
-		return fmt.Errorf("transaction failed: %w", err)
-	}
-
-	return nil
-}
-
-func (w *Wallet) WithdrawClaimableBalance(kp *keypair.Full, amountStr, balanceID, destinationAddr string) (string, float64, error) {
-	account, err := w.GetAccount(kp)
-	if err != nil {
-		return "", 0, fmt.Errorf("error getting account: %w", err)
-	}
-
-	// Create claim operation
-	claimOp := &txnbuild.ClaimClaimableBalance{
-		BalanceID: balanceID,
-	}
-
-	// Use competitive fee
-	fee := util.GetCompetitiveFee()
-
-	// Build transaction
-	tx, err := txnbuild.NewTransaction(
-		txnbuild.TransactionParams{
-			SourceAccount:        &account,
-			IncrementSequenceNum: true,
-			Operations:           []txnbuild.Operation{claimOp},
-			BaseFee:              fee,
-			Preconditions: txnbuild.Preconditions{
-				TimeBounds: txnbuild.NewInfiniteTimeout(),
-			},
-		},
-	)
-	if err != nil {
-		return "", 0, fmt.Errorf("error building transaction: %w", err)
-	}
-
-	// Sign transaction
-	tx, err = tx.Sign(w.networkPassphrase, kp)
-	if err != nil {
-		return "", 0, fmt.Errorf("error signing transaction: %w", err)
-	}
-
-	// Submit transaction
-	resp, err := w.client.SubmitTransaction(tx)
-	if err != nil {
-		return "", 0, fmt.Errorf("transaction failed: %w", err)
-	}
-
-	// Parse amount from response if available
-	amount, _ := strconv.ParseFloat(amountStr, 64)
-
-	return resp.Hash, amount, nil
 }
