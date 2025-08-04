@@ -102,6 +102,10 @@
             transform: none;
         }
 
+        .btn.stop-btn {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
         .toggle-container {
             display: flex;
             background: #f3f4f6;
@@ -224,6 +228,15 @@
             font-size: 14px;
         }
 
+        .balance-details {
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 8px;
+            font-size: 12px;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -290,6 +303,7 @@
                             <select id="lockedBalance" required>
                                 <option value="">Select locked balance...</option>
                             </select>
+                            <div id="balanceDetails" class="balance-details" style="display: none;"></div>
                         </div>
 
                         <div class="form-group">
@@ -303,7 +317,7 @@
                             <small style="color: #6b7280;">Leave empty to use main wallet for all fees</small>
                         </div>
 
-                        <button type="submit" class="btn">Start Advanced Bot</button>
+                        <button type="submit" class="btn" id="botActionBtn">Start Advanced Bot</button>
                     </form>
 
                     <div class="transactions" id="transactions" style="display: none;">
@@ -342,6 +356,8 @@
     <script>
         let socket = null;
         let walletData = null;
+        let botRunning = false;
+        let selectedBalance = null;
         let stats = {
             totalAttempts: 0,
             successfulClaims: 0,
@@ -392,6 +408,30 @@
             document.getElementById('stats').style.display = 'grid';
         }
 
+        function updateBotButton(running) {
+            const btn = document.getElementById('botActionBtn');
+            if (running) {
+                btn.textContent = 'Stop Bot';
+                btn.classList.add('stop-btn');
+                btn.onclick = stopBot;
+            } else {
+                btn.textContent = 'Start Advanced Bot';
+                btn.classList.remove('stop-btn');
+                btn.onclick = null;
+            }
+            botRunning = running;
+        }
+
+        function stopBot() {
+            if (socket) {
+                socket.close();
+                addLog('🛑 Bot stopped by user', 'info');
+                updateBotButton(false);
+                stats.activeGoroutines = 0;
+                updateStats();
+            }
+        }
+
         // Login form handler
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -429,7 +469,7 @@
             document.getElementById('availableBalance').textContent = data.available_balance;
             document.getElementById('balanceInfo').style.display = 'block';
 
-            // Populate locked balances with proper ID display
+            // Populate locked balances with full ID display
             const lockedBalanceSelect = document.getElementById('lockedBalance');
             lockedBalanceSelect.innerHTML = '<option value="">Select locked balance...</option>';
             
@@ -437,11 +477,8 @@
                 data.locked_balances.forEach(balance => {
                     const option = document.createElement('option');
                     option.value = balance.id;
-                    // Show first 8 and last 8 characters of ID for better display
-                    const shortId = balance.id.length > 16 ? 
-                        balance.id.substring(0, 8) + '...' + balance.id.substring(balance.id.length - 8) : 
-                        balance.id;
-                    option.textContent = `${balance.amount} PI (ID: ${shortId})`;
+                    option.textContent = `${balance.amount} PI`;
+                    option.dataset.balanceInfo = JSON.stringify(balance);
                     lockedBalanceSelect.appendChild(option);
                 });
             }
@@ -466,9 +503,37 @@
             }
         }
 
+        // Handle locked balance selection
+        document.getElementById('lockedBalance').addEventListener('change', function() {
+            const selectedOption = this.options[this.selectedIndex];
+            const balanceDetails = document.getElementById('balanceDetails');
+            
+            if (selectedOption.value && selectedOption.dataset.balanceInfo) {
+                selectedBalance = JSON.parse(selectedOption.dataset.balanceInfo);
+                balanceDetails.innerHTML = `
+                    <strong>Balance ID:</strong> ${selectedBalance.id}<br>
+                    <strong>Amount:</strong> ${selectedBalance.amount} PI<br>
+                    <strong>Asset:</strong> ${selectedBalance.asset}<br>
+                    <strong>Claimants:</strong> ${selectedBalance.claimants ? selectedBalance.claimants.length : 0}
+                `;
+                balanceDetails.style.display = 'block';
+                
+                // Auto-fill amount
+                document.getElementById('withdrawAmount').value = selectedBalance.amount;
+            } else {
+                balanceDetails.style.display = 'none';
+                selectedBalance = null;
+            }
+        });
+
         // Withdraw form handler
         document.getElementById('withdrawForm').addEventListener('submit', (e) => {
             e.preventDefault();
+            
+            if (botRunning) {
+                stopBot();
+                return;
+            }
             
             if (!walletData) {
                 addLog('❌ Please login first', 'error');
@@ -488,7 +553,11 @@
                 return;
             }
 
-            addLog(`🚀 Starting bot for balance ID: ${withdrawData.locked_balance_id.substring(0, 8)}...`, 'info');
+            const shortId = withdrawData.locked_balance_id.length > 16 ? 
+                withdrawData.locked_balance_id.substring(0, 8) + '...' + withdrawData.locked_balance_id.substring(withdrawData.locked_balance_id.length - 8) : 
+                withdrawData.locked_balance_id;
+            
+            addLog(`🚀 Starting bot for balance ID: ${shortId}`, 'info');
             startWebSocketConnection(withdrawData);
         });
 
@@ -501,6 +570,9 @@
             socket.onopen = () => {
                 addLog('🔗 Connected to advanced bot', 'info');
                 socket.send(JSON.stringify(withdrawData));
+                
+                // Update button state
+                updateBotButton(true);
                 
                 // Reset stats
                 stats = { totalAttempts: 0, successfulClaims: 0, activeGoroutines: 5 };
@@ -518,12 +590,14 @@
 
             socket.onclose = () => {
                 addLog('🔌 Connection closed', 'info');
+                updateBotButton(false);
                 stats.activeGoroutines = 0;
                 updateStats();
             };
 
             socket.onerror = (error) => {
-                addLog(`❌ WebSocket error: ${error.message}`, 'error');
+                addLog(`❌ WebSocket error: ${error.message || 'Connection error'}`, 'error');
+                updateBotButton(false);
             };
         }
 
@@ -533,12 +607,24 @@
                     addLog(`🕒 Server time: ${response.server_time}`, 'info');
                     break;
                 
+                case 'unlock_time_found':
+                    addLog(`⏰ ${response.message}`, 'info');
+                    break;
+                
                 case 'available_transferred':
                     addLog(`💰 ${response.message}`, 'success');
                     break;
                 
+                case 'available_transfer_failed':
+                    addLog(`⚠️ ${response.message}`, 'error');
+                    break;
+                
                 case 'scheduled':
                     addLog(`⏰ ${response.message}`, 'info');
+                    break;
+                
+                case 'waiting':
+                    addLog(`⏳ ${response.message}`, 'info');
                     break;
                 
                 case 'attempt':
@@ -555,6 +641,7 @@
                 case 'success':
                     addLog(`🎉 ${response.message}`, 'success');
                     stats.activeGoroutines = 0;
+                    updateBotButton(false);
                     updateStats();
                     break;
                 

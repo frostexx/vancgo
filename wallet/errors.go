@@ -57,14 +57,19 @@ func getTxErrorFromResultXdr(resultXdr string) error {
 }
 
 func (w *Wallet) Transfer(kp *keypair.Full, amountStr string, address string) error {
-	w.GetBaseReserve()
-	baseReserve := w.baseReserve
-
-	// Parse requested amount
+	// Parse requested amount first
 	requestedAmount, err := strconv.ParseFloat(amountStr, 64)
 	if err != nil {
 		return fmt.Errorf("invalid amount: %w", err)
 	}
+
+	// Check if amount is too small or negative
+	if requestedAmount <= 0.001 {
+		return fmt.Errorf("amount too small to transfer: %.7f PI", requestedAmount)
+	}
+
+	w.GetBaseReserve()
+	baseReserve := w.baseReserve
 
 	// Get account details
 	account, err := w.GetAccount(kp)
@@ -87,23 +92,27 @@ func (w *Wallet) Transfer(kp *keypair.Full, amountStr string, address string) er
 	// Calculate minimum required balance
 	minBalance := baseReserve * float64(2+account.SubentryCount)
 
-	// Available balance = total - reserve - 1 base fee
-	available := nativeBalance - minBalance - 0.00001
+	// Available balance = total - reserve - transaction fee
+	available := nativeBalance - minBalance - 0.01
 	if available <= 0 {
 		return fmt.Errorf("insufficient available balance")
 	}
 
-	requestedAmount = available - 0.01
+	// Use the smaller of requested amount or available balance
+	transferAmount := requestedAmount
+	if transferAmount > available {
+		transferAmount = available - 0.001 // Leave small buffer
+	}
 
-	// Ensure requested amount is transferable
-	if requestedAmount > available {
-		return fmt.Errorf("requested amount %.7f exceeds available balance %.7f", requestedAmount, available)
+	// Final check
+	if transferAmount <= 0 {
+		return fmt.Errorf("insufficient balance for transfer")
 	}
 
 	// Build payment operation
 	paymentOp := txnbuild.Payment{
 		Destination: address,
-		Amount:      strconv.FormatFloat(requestedAmount, 'f', 7, 64),
+		Amount:      strconv.FormatFloat(transferAmount, 'f', 7, 64),
 		Asset:       txnbuild.NativeAsset{},
 	}
 
@@ -136,7 +145,7 @@ func (w *Wallet) Transfer(kp *keypair.Full, amountStr string, address string) er
 		return getTxErrorFromResultXdr(resp.ResultXdr)
 	}
 
-	fmt.Println("Transaction successful:", resp.Hash)
+	fmt.Printf("Transfer successful: %.7f PI - Hash: %s\n", transferAmount, resp.Hash)
 	return nil
 }
 
