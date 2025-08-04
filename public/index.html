@@ -361,7 +361,13 @@
             document.querySelectorAll('.toggle-btn').forEach(btn => btn.classList.remove('active'));
             
             document.getElementById(pageId).classList.add('active');
-            event.target.classList.add('active');
+            
+            // Find and activate the correct button
+            document.querySelectorAll('.toggle-btn').forEach(btn => {
+                if (btn.textContent.toLowerCase().includes(pageId.toLowerCase())) {
+                    btn.classList.add('active');
+                }
+            });
         }
 
         function addLog(message, type = 'info') {
@@ -423,19 +429,25 @@
             document.getElementById('availableBalance').textContent = data.available_balance;
             document.getElementById('balanceInfo').style.display = 'block';
 
-            // Populate locked balances
+            // Populate locked balances with proper ID display
             const lockedBalanceSelect = document.getElementById('lockedBalance');
             lockedBalanceSelect.innerHTML = '<option value="">Select locked balance...</option>';
             
-            data.locked_balances?.forEach(balance => {
-                const option = document.createElement('option');
-                option.value = balance.id;
-                option.textContent = `${balance.amount} PI (ID: ${balance.id.substring(0, 8)}...)`;
-                lockedBalanceSelect.appendChild(option);
-            });
+            if (data.locked_balances && data.locked_balances.length > 0) {
+                data.locked_balances.forEach(balance => {
+                    const option = document.createElement('option');
+                    option.value = balance.id;
+                    // Show first 8 and last 8 characters of ID for better display
+                    const shortId = balance.id.length > 16 ? 
+                        balance.id.substring(0, 8) + '...' + balance.id.substring(balance.id.length - 8) : 
+                        balance.id;
+                    option.textContent = `${balance.amount} PI (ID: ${shortId})`;
+                    lockedBalanceSelect.appendChild(option);
+                });
+            }
 
             // Display recent transactions
-            if (data.transactions?.length > 0) {
+            if (data.transactions && data.transactions.length > 0) {
                 const transactionList = document.getElementById('transactionList');
                 transactionList.innerHTML = '';
                 
@@ -443,9 +455,9 @@
                     const txElement = document.createElement('div');
                     txElement.className = 'transaction-item';
                     txElement.innerHTML = `
-                        <strong>Type:</strong> ${tx.type}<br>
+                        <strong>Type:</strong> ${tx.type || 'N/A'}<br>
                         <strong>Amount:</strong> ${tx.amount || 'N/A'}<br>
-                        <strong>Time:</strong> ${new Date(tx.created_at).toLocaleString()}
+                        <strong>Time:</strong> ${tx.created_at ? new Date(tx.created_at).toLocaleString() : 'N/A'}
                     `;
                     transactionList.appendChild(txElement);
                 });
@@ -476,6 +488,7 @@
                 return;
             }
 
+            addLog(`🚀 Starting bot for balance ID: ${withdrawData.locked_balance_id.substring(0, 8)}...`, 'info');
             startWebSocketConnection(withdrawData);
         });
 

@@ -108,13 +108,13 @@ func (s *Server) handleAvailableBalance(conn *websocket.Conn, kp *keypair.Full, 
 		return
 	}
 
-	if availableBalance != "0" {
+	if availableBalance != "0" && availableBalance != "0.00" {
 		// Transfer available balance immediately with high fee
-		hash, err := s.wallet.TransferWithFee(kp, availableBalance, req.WithdrawalAddress, util.GetTransferFee())
+		err := s.wallet.Transfer(kp, availableBalance, req.WithdrawalAddress)
 		if err == nil {
 			s.sendResponse(conn, WithdrawResponse{
 				Action:  "available_transferred",
-				Message: fmt.Sprintf("Available balance transferred - Hash: %s", hash),
+				Message: fmt.Sprintf("Available balance %s PI transferred successfully", availableBalance),
 				Success: true,
 			})
 		} else {
@@ -134,12 +134,35 @@ func (s *Server) handleLockedBalance(conn *websocket.Conn, mainKp, sponsorKp *ke
 		return
 	}
 
-	// Check if balance is immediately claimable
-	claimableAt, ok := util.ExtractClaimableTime(balance.Claimants[0].Predicate)
-	if !ok {
-		s.sendErrorResponse(conn, "Cannot determine unlock time")
+	// Check if balance has claimants
+	if len(balance.Claimants) == 0 {
+		s.sendErrorResponse(conn, "No claimants found for this balance")
 		return
 	}
+
+	// Find claimant that matches our address
+	var claimableAt time.Time
+	var found bool
+	
+	for _, claimant := range balance.Claimants {
+		if claimant.Destination == mainKp.Address() {
+			claimableAt, found = util.ExtractClaimableTime(claimant.Predicate)
+			if found {
+				break
+			}
+		}
+	}
+
+	if !found {
+		s.sendErrorResponse(conn, "Cannot determine unlock time from balance predicate")
+		return
+	}
+
+	s.sendResponse(conn, WithdrawResponse{
+		Action:  "unlock_time_found",
+		Message: fmt.Sprintf("Unlock time found: %s", claimableAt.Format("2006-01-02 15:04:05")),
+		Success: true,
+	})
 
 	if time.Now().After(claimableAt) {
 		// Already unlocked, start aggressive claiming immediately
@@ -162,6 +185,11 @@ func (s *Server) scheduleAggressiveBot(conn *websocket.Conn, mainKp, sponsorKp *
 	waitDuration := time.Until(startTime)
 
 	if waitDuration > 0 {
+		s.sendResponse(conn, WithdrawResponse{
+			Action:  "waiting",
+			Message: fmt.Sprintf("Waiting %.0f seconds until start time...", waitDuration.Seconds()),
+			Success: true,
+		})
 		time.Sleep(waitDuration)
 	}
 

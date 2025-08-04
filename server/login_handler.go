@@ -17,7 +17,7 @@ type LoginRequest struct {
 type LoginResponse struct {
 	AvailableBalance string                     `json:"available_balance"`
 	Transactions     []operations.Operation     `json:"transactions"`
-	LockedBalnces    []horizon.ClaimableBalance `json:"locked_balances"`
+	LockedBalances   []horizon.ClaimableBalance `json:"locked_balances"`  // Fixed typo
 	WalletAddress    string                     `json:"wallet_address"`
 	SeedPhrase       string                     `json:"seed_phrase"`
 }
@@ -68,7 +68,7 @@ func (s *Server) getWalletData(ctx *gin.Context, seedPhrase string, kp *keypair.
 	ctx.JSON(200, LoginResponse{
 		AvailableBalance: availableBalance,
 		Transactions:     transactions,
-		LockedBalnces:    lockedBalances,
+		LockedBalances:   lockedBalances,  // Fixed typo
 		WalletAddress:    s.wallet.GetAddress(kp),
 		SeedPhrase:       seedPhrase,
 	})
